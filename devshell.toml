@@ -1,0 +1,2 @@
+[devshell]
+packages = [ ] # single-quoted, comma separated list of packages
