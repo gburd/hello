@@ -2,9 +2,16 @@
   description = "An over-engineered Hello World in C";
 
   # Nixpkgs / NixOS version to use.
-  inputs.nixpkgs.url = "nixpkgs/nixos-21.05";
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs";
+    flake-utils.url = "github:numtide/flake-utils";
+    flake-compat = {
+      url = "github:edolstra/flake-compat";
+      flake = false;
+    };
+  };
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, flake-utils, flake-compat }:
     let
 
       # to work with older version of flakes
@@ -36,6 +43,7 @@
           src = ./.;
 
           nativeBuildInputs = [ autoreconfHook ];
+          enableParallelBuilding = true;
         };
 
       };
@@ -46,12 +54,12 @@
           inherit (nixpkgsFor.${system}) hello;
         });
 
-      # The default package for 'nix build'. This makes sense if the
-      # flake provides only one package or there is a clear "main"
-      # package.
+      # The default package for 'nix build'. This makes sense if the flake
+      # provides only one package or there is a clear "main" package.
       defaultPackage = forAllSystems (system: self.packages.${system}.hello);
 
-      # A NixOS module, if applicable (e.g. if the package provides a system service).
+      # A NixOS module, if applicable (e.g. if the package provides a system
+      # service).
       nixosModules.hello =
         { pkgs, ... }:
         {
