@@ -1,0 +1,7 @@
+* add second build target `world.c`
+* add GitHub workflow to build all targets, upload/publish all artifacts
+* add Nix Flake
+* devshell
+* direnv/envrc
+* build windows
+
