@@ -12,13 +12,18 @@
 
   outputs = { self, nixpkgs, flake-utils }:
     let
-      # Generate a user-friendly version number (e.g. "1.2.3-DIRTY").
-      version = "${builtins.readFile ./VERSION.txt}${self.shortRev or "DIRTY"}";
+      inherit (nixpkgs) lib;
+      officialRelease = false;
 
-      # System types to support.
+      version = lib.fileContents ./.version + versionSuffix;
+      versionSuffix =
+        if officialRelease
+        then ""
+        else "pre${builtins.substring 0 8 (self.lastModifiedDate or self.lastModified or "19700101")}_${self.shortRev or "dirty"}";
+
       supportedSystems = [ "x86_64-linux" "x86_64-darwin" "aarch64-linux" "aarch64-darwin" ];
 
-      # Helper function to generate an attrset '{ x86_64-linux = f "x86_64-linux"; ... }'.
+      # Generate an attrset '{ x86_64-linux = f "x86_64-linux"; ... }'.
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
 
       # Nixpkgs instantiated for supported system types.
