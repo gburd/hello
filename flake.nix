@@ -46,8 +46,10 @@
           packages = { inherit (pkgs) hello; };
           packages.default = self.packages.${system}.hello;
           packages.container = pkgs.callPackage ./container.nix { package = packages.default; };
+
           apps.hello = flake-utils.lib.mkApp { drv = packages.default; };
           defaultApp = apps.hello;
+
           devShells.default = import ./shell.nix { inherit pkgs; };
         }
       );
