@@ -40,9 +40,9 @@
                 hello = with final; stdenv.mkDerivation rec {
                   pname = "hello";
                   inherit version;
-                  src = ./.;
+                  src = self;
                   nativeBuildInputs = [ autoreconfHook ];
-                };
+                  };
               })
             ];
           };
@@ -53,7 +53,7 @@
           packages.container = pkgs.callPackage ./container.nix { package = packages.default; };
 
           apps.hello = flake-utils.lib.mkApp { drv = packages.default; };
-          defaultApp = apps.hello;
+          apps.${system}.default = apps.hello;
 
           devShells.default = import ./shell.nix { inherit pkgs; };
         }

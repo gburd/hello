@@ -3,14 +3,12 @@
   * Docker container on DockerHub, GitHub Container Repository (ghcr.io)
     * containers could have multiple tags as in `latest` and `1.0.0`
 * build windows MSYS2
-* formatting
-* lint
-* security audits
 * Gitpod
-* recorded ascii demo
 * README.md
   * build and other badges
 
 -----
 nix flake show
+nix flake check
+nix shell github:gburd/hello -c hello
 nix flake show --json | jq  '.packages."x86_64-linux"|keys[]'| xargs -I {} nix build .#{}
