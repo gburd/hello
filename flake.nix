@@ -5,19 +5,13 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs";
     flake-utils.url = "github:numtide/flake-utils";
-    flake-compat = {
-      url = "github:edolstra/flake-compat";
-      flake = false;
-    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, flake-compat }:
+  outputs = { self, nixpkgs, flake-utils }:
     let
-
-      # to work with older version of flakes
       lastModifiedDate = self.lastModifiedDate or self.lastModified or "19700101";
 
-      # Generate a user-friendly version number.
+      # Generate a user-friendly version number for our target.
       version = builtins.substring 0 8 lastModifiedDate;
 
       # System types to support.
@@ -30,95 +24,41 @@
       nixpkgsFor = forAllSystems (system: import nixpkgs { inherit system; overlays = [ self.overlay ]; });
 
     in
+      flake-utils.lib.eachDefaultSystem (system:
+        let
+          pkgs = import nixpkgs {
+            inherit system;
 
-    {
-
-      # A Nixpkgs overlay.
-      overlay = final: prev: {
-
-        hello = with final; stdenv.mkDerivation rec {
-          pname = "hello";
-          inherit version;
-
-          src = ./.;
-
-          nativeBuildInputs = [ autoreconfHook ];
-          enableParallelBuilding = true;
-        };
-
-      };
-
-      # Provide some binary packages for selected system types.
-      packages = forAllSystems (system:
-        {
-          inherit (nixpkgsFor.${system}) hello;
-        });
-
-      # The default package for 'nix build'. This makes sense if the flake
-      # provides only one package or there is a clear "main" package.
-      defaultPackage = forAllSystems (system: self.packages.${system}.hello);
-
-      # A NixOS module, if applicable (e.g. if the package provides a system
-      # service).
-      nixosModules.hello =
-        { pkgs, ... }:
-        {
-          nixpkgs.overlays = [ self.overlay ];
-
-          environment.systemPackages = [ pkgs.hello ];
-
-          #systemd.services = { ... };
-        };
-
-      # Tests run by 'nix flake check' and by Hydra.
-      checks = forAllSystems
-        (system:
-          with nixpkgsFor.${system};
-
-          {
-            inherit (self.packages.${system}) hello;
-
-            # Additional tests, if applicable.
-            test = stdenv.mkDerivation {
-              pname = "hello-test";
-              inherit version;
-
-              buildInputs = [ hello ];
-
-              dontUnpack = true;
-
-              buildPhase = ''
-                echo 'running some integration tests'
-                [[ $(hello) = 'Hello Nixers!' ]]
-              '';
-
-              installPhase = "mkdir -p $out";
-            };
-          }
-
-          // lib.optionalAttrs stdenv.isLinux {
-            # A VM test of the NixOS module.
-            vmTest =
-              with import (nixpkgs + "/nixos/lib/testing-python.nix") {
-                inherit system;
-              };
-
-              makeTest {
-                nodes = {
-                  client = { ... }: {
-                    imports = [ self.nixosModules.hello ];
-                  };
+            overlays = [
+              (final: prev: {
+                hello = with final; stdenv.mkDerivation rec {
+                  pname = "hello";
+                  inherit version;
+                  src = ./.;
+                  nativeBuildInputs = [ autoreconfHook ];
                 };
+              })
+            ];
+          };
+        in rec {
 
-                testScript =
-                  ''
-                    start_all()
-                    client.wait_for_unit("multi-user.target")
-                    client.succeed("hello")
-                  '';
-              };
-          }
-        );
+          packages = { inherit (pkgs) hello; };
+          packages.default = self.packages.${system}.hello;
+          packages.container = pkgs.dockerTools.buildImage {
+            name = "hello";
+            tag = "0.1.0";
+            created = "now";
+            copyToRoot = pkgs.buildEnv {
+              name = "image-root";
+              paths = [ packages.default ];
+              pathsToLink = [ "/bin" ];
+            };
+            config.Cmd = [ "${packages.default}/bin/hello" ];
+          };
 
-    };
+          apps.hello = flake-utils.lib.mkApp { drv = packages.hello; };
+          defaultApp = apps.hello;
+          # devShells.default = import ./shell.nix { inherit pkgs; };
+        }
+      );
 }
