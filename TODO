@@ -1,5 +1,5 @@
-* add GitHub workflow to build all targets, upload/publish all artifacts
-  * deb, rpm, tgz of source
+* add GitHub Actions/workflow to build all targets, upload/publish all artifacts
+  * deb, rpm?, tgz of source?
   * Docker container on DockerHub, GitHub Container Repository (ghcr.io)
     * containers could have multiple tags as in `latest` and `1.0.0`
 * build windows MSYS2
