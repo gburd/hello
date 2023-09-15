@@ -1,8 +1,36 @@
-* add GitHub Actions/workflow to build all targets, upload/publish all artifacts
-  * deb, rpm?, tgz of source?
-  * Docker container on DockerHub, GitHub Container Repository (ghcr.io)
-    * containers could have multiple tags as in `latest` and `1.0.0`
-* build windows MSYS2
+GOALS:
+-------------------------------------------------------------------------------
+* compile
+  * GNU Autoconf
+  * GNU GCC
+* platforms:
+  * Linux:
+    * "i386-linux" "x86_64-linux"
+      "armv6l-linux" "armv7l-linux" "aarch64-linux"
+      "powerpc64le-linux"
+      "riscv64-linux"
+    * "x86_64-darwin" "aarch64-darwin"
+  * Windows 10+ 64bit
+    * "mingw-w64" (zicross or nixcrpkgs?)
+  * Raspberry Pi?
+    * "armv7l-hf-multiplatform" (ARMv7, v8? v8.2?)
+    * "aarch64-hf-multiplatform" (AArch64)
+  * VM image/OSv
+    * x86_64, arm?, (kvm, firecracker, hyper-v, ...)
+* docker:
+  * "x86_64-linux", "aarch64-linux" (AWS/EC2 Graviton 1/2)
+  * upload/publish all artifacts
+* installers/packages
+  * tgz of source for release
+  * tgz for binaries
+  * deb, rpm, flake, WiX (Windows)
+    * signed and published
+  * macOS?
+  * asdf?
+* CI/CD
+  * GHA/Actuated.dev
+
+-------------------------------------------------------------------------------
 * Gitpod
 * README.md
   * build and other badges

@@ -10,8 +10,11 @@
     flake-utils.url = "github:numtide/flake-utils";
     zicross.url = "github:flyx/Zicross";
   };
+  inputs.pre-commit-hooks.url = "github:cachix/pre-commit-hooks.nix";
+  inputs.nix-github-actions.url = "github:nix-community/nix-github-actions";
+  inputs.nix-github-actions.inputs.nixpkgs.follows = "nixpkgs";
 
-  outputs = { self, nixpkgs, flake-utils, zicross }:
+  outputs = { self, nixpkgs, flake-utils, pre-commit-hooks, nix-github-actions, zicross }:
     let
       inherit (nixpkgs) lib;
       officialRelease = false;
@@ -22,7 +25,7 @@
         then ""
         else "pre${builtins.substring 0 8 (self.lastModifiedDate or self.lastModified or "19700101")}_${self.shortRev or "dirty"}";
 
-      supportedSystems = [ "x86_64-linux" "x86_64-darwin" "aarch64-linux" "aarch64-darwin" ];
+      supportedSystems = [ "i386-linux" "x86_64-linux" "armv6l-linux" "armv7l-linux" "aarch64-linux" "powerpc64le-linux" "riscv64-linux" "x86_64-darwin" "aarch64-darwin" ];
 
       # Generate an attrset '{ x86_64-linux = f "x86_64-linux"; ... }'.
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
@@ -55,18 +58,41 @@
                   ];
                   nativeBuildInputs = [ autoreconfHook ];
                   meta = {
-                    maintainers = [ "Symas Corporation <support@symas.com>" "Greg Burd <gburd@symas.com>" ];
-                    homepage = "https://github.com/openldap/openldap";
-                    license = licenses.openldap;
+                    maintainers = [ "Greg Burd <greg@burd.me>" ];
+                    downloadPage = "https://github.com/gburd/hello/releases";
+                    changelog = "https://raw.githubusercontent.com/gburd/hello/main/ChangeLog";
+                    platforms = supportedSystems;
+                    homepage = "https://github.com/gburd/hello";
+                    license = "https://github.com/gburd/hello/LICENSE";
                     mainProgram = "hello";
                   };
                 };
               })
             ];
+
+            checks = {
+              pre-commit-check = pre-commit-hooks.lib.${system}.run {
+                src = ./.;
+                hooks = {
+                  nixpkgs-fmt.enable = true;
+                };
+              };
+            };
+
+            devShell = nixpkgs.legacyPackages.${system}.mkShell {
+              inherit (self.checks.${system}.pre-commit-check) shellHook;
+            };
+
           };
 
         in rec {
-          packages = { inherit (pkgs) hello; };
+          packages = {
+            inherit (pkgs) hello;
+
+            githubActions = nix-github-actions.lib.mkGithubMatrix {
+              checks = nixpkgs.lib.getAttrs [ "x86_64-linux" "x86_64-darwin" ] self.packages;
+            };
+          };
           packages.default = self.packages.${system}.hello;
           packages.container = pkgs.callPackage ./container.nix { package = packages.default; };
           #packages.win64zip = pkgs.callPackage ./win64zip.nix { package = packages.default; };

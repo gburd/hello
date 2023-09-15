@@ -41,6 +41,7 @@ bulid
 .libs
 .links
 .direnv
+.pre-commit-config.yaml
 
 version.c
 

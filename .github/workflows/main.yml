@@ -1,0 +1,67 @@
+name: "Hello"
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+  issues: write
+
+# concurrency:
+#   group: ${{ github.ref }}
+#   cancel-in-progress: true
+
+env:
+  GIT_BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+  GITHUB_REPOSITORY: ${{ github.repository }}
+  GITHUB_SHA: ${{ github.sha }}
+
+jobs:
+  nix-build:
+    needs: nix-matrix
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix: ${{fromJSON(needs.nix-matrix.outputs.matrix)}}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: cachix/install-nix-action@v22
+      - run: nix build -L ".#${{ matrix.attr }}"
+
+    # runs-on: ubuntu-latest
+    # name: Build on ${{ matrix.distro }} (${{ matrix.version }}) for ${{ matrix.arch }}
+
+    # # strategy:
+    # #   matrix:
+    # #     include:
+    # #       - arch: x86_64
+    # #         distro: Debian
+    # #         version: bullseye
+    # #       - arch: aarch64
+    # #         distro: Debian
+    # #         version: bullseye
+    # #       - arch: ppc64le
+    # #         distro: Debian
+    # #         version: bullseye
+    # #       - arch: risc64
+    # #         distro: Ubuntu
+    # #         version: ubuntu_latest
+
+    # steps:
+    #   - uses: actions/checkout@v3
+    #   - uses: cachix/install-nix-action@v22
+    #     with:
+    #       github_access_token: ${{ secrets.GITHUB_TOKEN }}
+    #   - run: nix build -L 
+    #   - run: nix flake check
+
+    #       nix-build:
+    # needs: nix-matrix
+    # runs-on: ${{ matrix.os }}
+    # strategy:
+    #   matrix: ${{fromJSON(needs.nix-matrix.outputs.matrix)}}
+    # steps:
+    #   - uses: actions/checkout@v3
+    #   - uses: cachix/install-nix-action@v22
+    #   - run: nix build -L ".#${{ matrix.attr }}"
