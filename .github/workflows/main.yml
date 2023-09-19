@@ -9,9 +9,9 @@ permissions:
   contents: read
   issues: write
 
-# concurrency:
-#   group: ${{ github.ref }}
-#   cancel-in-progress: true
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   GIT_BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
@@ -19,14 +19,27 @@ env:
   GITHUB_SHA: ${{ github.sha }}
 
 jobs:
+  nix-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: cachix/install-nix-action@v22
+      - id: set-matrix
+        name: Generate Nix Matrix
+        run: |
+          set -Eeu
+          echo "matrix=$(nix eval --json '.#githubActions.matrix')" >> "$GITHUB_OUTPUT"
   nix-build:
     needs: nix-matrix
+    name: Build on ${{ matrix.attr }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix: ${{fromJSON(needs.nix-matrix.outputs.matrix)}}
     steps:
-      - uses: actions/checkout@v3
       - uses: cachix/install-nix-action@v22
+      - uses: actions/checkout@v3
       - run: nix build -L ".#${{ matrix.attr }}"
 
     # runs-on: ubuntu-latest

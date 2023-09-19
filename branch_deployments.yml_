@@ -1,0 +1,294 @@
+name: Deploy a development branch PR using Dagster Hybrid Cloud
+
+# on:
+#   pull_request:
+#     types: [opened, synchronize, reopened]
+
+concurrency:
+  # Cancel in-progress runs on same branch
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AWS_PROFILE: "klar-neutral"
+  AWS_ACCOUNT_ID: "739282534308"
+  AWS_REGION: "us-east-2"
+  DAGSTER_CLOUD_API_TOKEN: ${{ secrets.DAGSTER_CLOUD_API_TOKEN }}
+  DAGSTER_CLOUD_ORGANIZATION_ID: "klar"
+  DAGSTER_CLOUD_URL: "https://klar.dagster.cloud"
+  DOCKER_CONFIG: $GITHUB_WORKSPACE
+  GITHUB_REPOSITORY: ${{ github.repository }}
+  GITHUB_SHA: ${{ github.sha }}
+  PIP_ROOT_USER_ACTION: ignore
+  GIT_BRANCH_NAME: ${{ github.head_ref || github.ref_name }} # For PRs, use the head branch name, for other commits, use the branch name itself
+
+jobs:
+  setup:
+    name: Parse Dagster Hybrid Cloud configuration file
+    runs-on: [self-hosted, default]
+    outputs:
+      locations: ${{ steps.load_workspace_file.outputs.build_info }}
+      secrets_set: ${{ steps.load_workspace_file.outputs.secrets_set }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - run: |
+          git fetch origin ${{ github.event.repository.default_branch }}:${{ github.event.repository.default_branch }}
+          git fetch origin ${{ env.GIT_BRANCH_NAME }}:${{ env.GIT_BRANCH_NAME }}
+
+      - name: Configure PIP to use AWS/CodeArtifact
+        run: |
+          CODEARTIFACT_AUTH_TOKEN=$(aws --profile klar-neutral codeartifact get-authorization-token --domain klar-neutral --query authorizationToken --output text)
+          pip config set global.index-url "https://aws:${CODEARTIFACT_AUTH_TOKEN}@klar-neutral-${AWS_ACCOUNT_ID}.d.codeartifact.us-east-2.amazonaws.com/pypi/klar/simple/"
+
+      - name: Install Virtual Environment for Python
+        shell: bash
+        run: python3 -m pip install virtualenv
+
+      - name: Setup Virtual Environment for Python
+        shell: bash
+        run: virtualenv /tmp/venv
+
+      - name: Activate Virtual Environment for Python
+        shell: bash
+        run: |
+          . /tmp/venv/bin/activate
+          echo PATH=$PATH >> $GITHUB_ENV
+
+      - name: Display Python version
+        shell: bash
+        run: |
+            which python
+            python -c "import sys; print(sys.version)"
+
+      - name: Upgrade pip
+        shell: bash
+        run: |
+            python -m pip install --upgrade pip
+
+      - name: Install required Python dependencies
+        shell: bash
+        run: |
+            pip install --upgrade oyaml sh GitPython
+
+      - name: Create build_info with only the changed code locations
+        id: load_workspace_file
+        shell: bash
+        env:
+          CHANGES_ONLY: yes
+          DEFAULT_BRANCH_NAME: ${{ github.event.repository.default_branch }}
+        run: |
+            python ${GITHUB_WORKSPACE}/.github/workflows/parse_workspace.py dagster_cloud.yaml ${{ env.GIT_BRANCH_NAME }} >> $GITHUB_OUTPUT
+
+  build:
+    name: Dagster Hybrid Deploy
+    runs-on: [self-hosted, default]
+    needs: setup
+    if: ${{ needs.setup.outputs.locations != '[]' }}
+    permissions: write-all
+    strategy:
+      fail-fast: false
+      matrix:
+        location: ${{ fromJSON(needs.setup.outputs.locations) }}
+        python-version: ["3.10"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.sha }}
+          lfs: true
+#          submodules: recursive
+
+      - name: Copy common utils framework into this code location
+        shell: bash
+        working-directory: ${{ matrix.location.directory }}
+        run: |
+          [ ! -d utils ] && mkdir utils
+          (cd ${GITHUB_WORKSPACE} && tar -cf - utils) | tar -xvf -
+
+      - name: Set deps-cache-from
+        # Don't use cached deps if instructed
+        shell: bash
+        if: ${{ inputs.force_rebuild_deps != 'true' }}
+        # For PR commits, use the target branch name as the cache-tag, for other commits, use the branch name itself
+        run: echo "FLAG_DEPS_CACHE_FROM=--deps-cache-from=${{ github.repository }}/${{ matrix.location.name }}/${{ github.base_ref && github.base_ref || github.ref_name }}" >> $GITHUB_ENV
+
+      - name: Set deps-cache-to
+        # Only write to the cache-tag for non PR commits so PR commits don't upgrade dependency versions
+        shell: bash
+        if: ${{ github.base_ref == '' }}
+        run: echo "FLAG_DEPS_CACHE_TO=--deps-cache-to=${{ github.repository }}/${{ matrix.location.name }}/${{ github.ref_name }}" >> $GITHUB_ENV
+
+      - name: Configure PIP to use AWS/CodeArtifact
+        run: |
+          export CODEARTIFACT_AUTH_TOKEN=$(aws --profile klar-neutral codeartifact get-authorization-token --domain klar-neutral --query authorizationToken --output text)
+          echo "PIP_INDEX_URL=https://aws:${CODEARTIFACT_AUTH_TOKEN}@klar-neutral-${AWS_ACCOUNT_ID}.d.codeartifact.us-east-2.amazonaws.com/pypi/klar/simple/" >> $GITHUB_ENV
+          pip config set global.index-url "https://aws:${CODEARTIFACT_AUTH_TOKEN}@klar-neutral-${AWS_ACCOUNT_ID}.d.codeartifact.us-east-2.amazonaws.com/pypi/klar/simple/"
+
+      - name: Login to AWS/ECR
+        shell: bash
+        run: |
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+
+      - name: Create ECR repository if it doesn't exist
+        id: create-repository
+        continue-on-error: true
+        shell: bash
+        run: |
+          output=$(aws ecr describe-repositories --repository-names "${{ matrix.location.name }}" 2>&1)
+          if [ $? -ne 0 ]; then
+            if echo "${output}" | grep -q RepositoryNotFoundException; then
+              aws ecr create-repository --repository-name "${{ matrix.location.name }}"
+            else
+              >&2 echo "${output}"
+            fi
+          fi
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install Wheel, SetupTools, Virtual Environment, and PIPx
+        shell: bash
+        run: |
+          python3 -m pip install wheel setuptools virtualenv pipx
+
+      - name: Activate Virtual Environment for code location
+        shell: bash
+        working-directory: ${{ matrix.location.directory }}
+        run: |
+          virtualenv venv-${{ matrix.location.name }}
+          source ./venv-${{ matrix.location.name }}/bin/activate
+          echo PATH=$PATH >> $GITHUB_ENV
+
+      - name: Display Python version
+        shell: bash
+        run: |
+            which python
+            python -c "import sys; print(sys.version)"
+
+      - name: Upgrade pip
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+
+      - name: Install more Python dependencies
+        shell: bash
+        run: |
+          pip install coverage pytest pytest-json-report pytest-md-report pytest-annotate pyannotate ruff markupsafe==2.0.1 lintly
+          pip install oyaml sh GitPython
+
+      - name: Install code location requirements
+        working-directory: ${{ matrix.location.directory }}
+        shell: bash
+        run: |
+            if [ -d utils ]; then
+                cp requirements.txt /tmp
+                sed -i -e "s|/opt/dagster/app|$(pwd)|" requirements.txt
+                pip install -e utils
+                mv /tmp/requirements.txt .
+            fi
+            pip install -e ".[tests]"
+
+      - name: Run tests and collect coverage
+        working-directory: ${{ matrix.location.directory }}
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+            python -m coverage run -m pytest *.py --doctest-modules --ignore=${{ matrix.location.name }} \
+              --md-report --md-report-output="/tmp/${{ matrix.location.name }}-code-coverage-results.md"
+            python -m coverage html --data-file=.coverage --directory=/tmp/${{ matrix.location.name }} --title=${{ matrix.location.name }} --rcfile=${GITHUB_WORKSPACE}/.coveragerc
+            python -m coverage json --data-file=.coverage --o coverage.json --rcfile=${GITHUB_WORKSPACE}/.coveragerc
+            python ${GITHUB_WORKSPACE}/.github/workflows/post_coverage_to_pr.py
+            rm -f .coverage coverage.json
+
+      - name: Add Coverage PR Comment
+        uses: marocchino/sticky-pull-request-comment@v2.6.2
+        if: github.event_name == 'pull_request'
+        with:
+          recreate: true
+          path: /tmp/${{ matrix.location.name }}/index.html
+
+      - name: Write code coverage results to Job Summary
+        run: cat /tmp/${{ matrix.location.name }}-code-coverage-results.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Generate requirements.txt from setup.py for use in security checks
+        continue-on-error: true
+        shell: bash
+        run: |
+          pipx run pipreqs --ignore bin,etc,include,lib,lib64 --pypi-server ${{ env.PIP_INDEX_URL }} --print ${{ matrix.location.directory }} 2>/dev/null > "/tmp/requirements-${{ matrix.location.name }}.txt"
+
+      - name: Check for security issues
+        uses: pypa/gh-action-pip-audit@v1.0.7
+        continue-on-error: true
+        with:
+          extra-index-urls: ${{ env.PIP_INDEX_URL }}
+          inputs: "/tmp/requirements-${{ matrix.location.name }}.txt"
+          local: true
+
+      - name: Lint for Python syntax errors or undefined names
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        shell: bash
+        run: ruff --quiet check --exit-zero --format text ${{ matrix.location.directory }} | lintly --exit-zero --fail-on new --no-post-status --request-changes --use-checks --api-key ${{ secrets.GITHUB_TOKEN }} --pr ${{ github.event.number }} --repo ${{ github.repository }} --commit-sha=${{ github.event.pull_request.head.sha }} --format unix
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build and deploy to Dagster Cloud hybrid
+        uses: dagster-io/dagster-cloud-action/actions/hybrid_branch_deploy@v0.1
+        with:
+          dagster_cloud_api_token: ${{ secrets.DAGSTER_CLOUD_API_TOKEN }}
+          organization_id: ${{ secrets.ORGANIZATION_ID }}
+          checkout_repo: false
+          location: ${{ toJson(matrix.location) }}
+          secrets: |
+            pipconf=/home/runner/.config/pip/pip.conf
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCKER_BUILDKIT: 1
+
+      # - name: Additional image tags for deployment environment and Klar Central Station
+      #   shell: bash
+      #   continue-on-error: true
+      #   working-directory: ${{ matrix.location.directory }}
+      #   run: |
+      #     docker tag "${{ matrix.location.registry }}:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}" "${{ matrix.location.registry }}:${{ github.run_number }}-${{ github.sha }}"
+      #     docker push "${{ matrix.location.registry }}:${{ github.run_number }}-${{ github.sha }}"
+
+  infra:
+    name: Push changes in the infra/environments-stack into Kubernetes
+    runs-on: [self-hosted, default]
+    needs: setup
+    concurrency:
+      group: "terraform-${{ matrix.environment }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [staging]
+
+    steps:
+      - uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: '${{ secrets.ORG_SSH_KEY }}'
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/checkout@v3
+        with:
+          repository: 'klar-mx/github-actions'
+          ref: 'v2'
+          path: '.actions'
+          ssh-key: '${{ secrets.ORG_SSH_KEY }}'
+      - uses: ./.actions/deploy_infra
+        env:
+          TF_VAR_git_branch_name: ${{ env.GIT_BRANCH_NAME }}
+        with:
+          environment: '${{ matrix.environment }}'
+          image: '739282534308.dkr.ecr.us-east-2.amazonaws.com/{{ github.event.repository.name }}:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}'
