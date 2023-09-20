@@ -17,6 +17,7 @@ env:
   GIT_BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
   GITHUB_REPOSITORY: ${{ github.repository }}
   GITHUB_SHA: ${{ github.sha }}
+  CACHIX_SIGNING_KEY: ${{ secrets.CACHIX_SIGNING_KEY }}
 
 jobs:
   nix-matrix:
@@ -28,7 +29,6 @@ jobs:
       - uses: cachix/install-nix-action@v22
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-          CACHIX_SIGNING_KEY: ${{ secrets.CACHIX_SIGNING_KEY }}
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
       - id: set-matrix
         name: Generate Nix Matrix
