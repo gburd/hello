@@ -51,3 +51,9 @@ Makefile
 /include/stamp-h?
 /libtool
 /stamp-h
+configure
+
+.idea
+autom4te.cache
+build
+

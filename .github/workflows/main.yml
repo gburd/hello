@@ -26,55 +26,30 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: cachix/install-nix-action@v22
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          CACHIX_SIGNING_KEY: ${{ secrets.CACHIX_SIGNING_KEY }}
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
       - id: set-matrix
         name: Generate Nix Matrix
         run: |
           set -Eeu
           echo "matrix=$(nix eval --json '.#githubActions.matrix')" >> "$GITHUB_OUTPUT"
+          echo 'matrix={"include":[{"attr":"githubActions.checks.x86_64-linux.hello","os":["ubuntu-22.04"]},{"attr":"githubActions.checks.x86_64-linux.container","os":["ubuntu-22.04"]}]}' >> "$GITHUB_OUTPUT"
+
   nix-build:
     needs: nix-matrix
     name: Build on ${{ matrix.attr }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       matrix: ${{fromJSON(needs.nix-matrix.outputs.matrix)}}
     steps:
-      - uses: cachix/install-nix-action@v22
       - uses: actions/checkout@v3
+      - uses: cachix/install-nix-action@v22
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          CACHIX_SIGNING_KEY: ${{ secrets.CACHIX_SIGNING_KEY }}
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Print nixpkgs version
+        run: nix-instantiate --eval -E '(import <nixpkgs> {}).lib.version'
       - run: nix build -L ".#${{ matrix.attr }}"
-
-    # runs-on: ubuntu-latest
-    # name: Build on ${{ matrix.distro }} (${{ matrix.version }}) for ${{ matrix.arch }}
-
-    # # strategy:
-    # #   matrix:
-    # #     include:
-    # #       - arch: x86_64
-    # #         distro: Debian
-    # #         version: bullseye
-    # #       - arch: aarch64
-    # #         distro: Debian
-    # #         version: bullseye
-    # #       - arch: ppc64le
-    # #         distro: Debian
-    # #         version: bullseye
-    # #       - arch: risc64
-    # #         distro: Ubuntu
-    # #         version: ubuntu_latest
-
-    # steps:
-    #   - uses: actions/checkout@v3
-    #   - uses: cachix/install-nix-action@v22
-    #     with:
-    #       github_access_token: ${{ secrets.GITHUB_TOKEN }}
-    #   - run: nix build -L 
-    #   - run: nix flake check
-
-    #       nix-build:
-    # needs: nix-matrix
-    # runs-on: ${{ matrix.os }}
-    # strategy:
-    #   matrix: ${{fromJSON(needs.nix-matrix.outputs.matrix)}}
-    # steps:
-    #   - uses: actions/checkout@v3
-    #   - uses: cachix/install-nix-action@v22
-    #   - run: nix build -L ".#${{ matrix.attr }}"
