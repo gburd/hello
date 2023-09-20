@@ -43,12 +43,8 @@
             inherit system;
 
             overlays = [
-              zicross.overlays.zig
-              zicross.overlays.debian
-              zicross.overlays.windows
-
               (final: prev: {
-                hello = with final; zigStdenv.mkDerivation rec {
+                hello = with final; stdenv.mkDerivation rec {
                   inherit version;
                   inherit system;
                   pname = "hello";
@@ -87,15 +83,19 @@
 
         in rec {
           packages = {
-            inherit (pkgs) hello;
-
+            # This changes things in "packages" below of the form: "packages.x86_64-linux" into
+            # "githubActions.checks.x86_64-linux.hello" so that the GHA matrix can iterate over them.
             githubActions = nix-github-actions.lib.mkGithubMatrix {
-              checks = nixpkgs.lib.getAttrs [ "x86_64-linux" "x86_64-darwin" ] self.packages;
+              #checks = nixpkgs.lib.getAttrs [ "x86_64-linux" "x86_64-darwin" ] self.packages;
+              checks = nixpkgs.lib.getAttrs supportedSystems self.packages;
             };
+            hello = nixpkgs.legacyPackages.${system}.hello;
+            lxc = pkgs.callPackage ./nix/lxc.nix { package = packages.default; };
           };
           packages.default = self.packages.${system}.hello;
-          packages.container = pkgs.callPackage ./container.nix { package = packages.default; };
-          #packages.win64zip = pkgs.callPackage ./win64zip.nix { package = packages.default; };
+
+          #packages.win64zip = pkgs.callPackage ./nix/pkg-win64zip.nix { package = packages.default; };
+          #packages.win64zip = pkgs.callPackage ./nix/pkg-win64-wix.nix { package = packages.default; };
           packages.win64zip = pkgs.packageForWindows packages.default {
             targetSystem = "x86_64-windows";
             appendExe = [ "hello" ];

@@ -34,8 +34,9 @@ jobs:
         name: Generate Nix Matrix
         run: |
           set -Eeu
-          echo "matrix=$(nix eval --json '.#githubActions.matrix')" >> "$GITHUB_OUTPUT"
-          echo 'matrix={"include":[{"attr":"githubActions.checks.x86_64-linux.hello","os":["ubuntu-22.04"]},{"attr":"githubActions.checks.x86_64-linux.container","os":["ubuntu-22.04"]}]}' >> "$GITHUB_OUTPUT"
+          #echo "matrix=$(nix eval --json '.#githubActions.matrix')" >> "$GITHUB_OUTPUT"
+          #echo 'matrix={"include":[{"attr":"githubActions.checks.x86_64-linux.hello","os":["ubuntu-22.04"]},{"attr":"githubActions.checks.x86_64-linux.lxc","os":["ubuntu-22.04"]}]}' >> "$GITHUB_OUTPUT"
+          echo 'matrix={"include":[{"attr":"githubActions.checks.x86_64-linux.lxc","os":["ubuntu-22.04"]}]}' >> "$GITHUB_OUTPUT"
 
   nix-build:
     needs: nix-matrix
