@@ -25,7 +25,8 @@
         then ""
         else "pre${builtins.substring 0 8 (self.lastModifiedDate or self.lastModified or "19700101")}_${self.shortRev or "dirty"}";
 
-      supportedSystems = [ "i386-linux" "x86_64-linux" "armv6l-linux" "armv7l-linux" "aarch64-linux" "powerpc64le-linux" "riscv64-linux" "x86_64-darwin" "aarch64-darwin" ];
+      #supportedSystems = [ "i386-linux" "x86_64-linux" "armv6l-linux" "armv7l-linux" "aarch64-linux" "powerpc64le-linux" "riscv64-linux" "x86_64-darwin" "aarch64-darwin" "x86_64-windows" "x86_64-windows" ];
+      supportedSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" "x86_64-windows" ];
 
       # Generate an attrset '{ x86_64-linux = f "x86_64-linux"; ... }'.
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
@@ -43,8 +44,12 @@
             inherit system;
 
             overlays = [
+              zicross.overlays.zig
+              zicross.overlays.debian
+              zicross.overlays.windows
+
               (final: prev: {
-                hello = with final; stdenv.mkDerivation rec {
+                hello = with final; (if lib.strings.hasSuffix "windows" system then zigStdenv else stdenv).mkDerivation rec {
                   inherit version;
                   inherit system;
                   pname = "hello";
@@ -83,32 +88,22 @@
 
         in rec {
           packages = {
+            inherit (pkgs) hello;
+
             # This changes things in "packages" below of the form: "packages.x86_64-linux" into
-            # "githubActions.checks.x86_64-linux.hello" so that the GHA matrix can iterate over them.
+            # "githubActions.targets.x86_64-linux.hello" so that the GHA matrix can iterate over them.
             githubActions = nix-github-actions.lib.mkGithubMatrix {
-              #checks = nixpkgs.lib.getAttrs [ "x86_64-linux" "x86_64-darwin" ] self.packages;
               checks = nixpkgs.lib.getAttrs supportedSystems self.packages;
             };
-            hello = nixpkgs.legacyPackages.${system}.hello;
-            lxc = pkgs.callPackage ./nix/lxc.nix { package = packages.default; };
           };
           packages.default = self.packages.${system}.hello;
 
-          #packages.win64zip = pkgs.callPackage ./nix/pkg-win64zip.nix { package = packages.default; };
-          #packages.win64zip = pkgs.callPackage ./nix/pkg-win64-wix.nix { package = packages.default; };
-          packages.win64zip = pkgs.packageForWindows packages.default {
-            targetSystem = "x86_64-windows";
-            appendExe = [ "hello" ];
-            deps = {
-              libcpp = {
-                tail = "libc++-14.0.3-1-any.pkg.tar.zst";
-                sha256 = "1r73zs9naislzzjn7mr3m8s6pikgg3y4mv550hg09gcsjc719kzz";
-              };
-            };
-          };
+          packages.lxc = pkgs.callPackage ./nix/lxc.nix { package = packages.default; };
+          packages.x86_64-windows = pkgs.callPackage ./nix/pkg-win64zip.nix { package = packages.default; };
+          #packages.x86_64-wix = pkgs.callPackage ./nix/pkg-win64-wix.nix { inherit pkgs packages; };
 
-          apps.hello = flake-utils.lib.mkApp { drv = packages.default; };
-          apps.${system}.default = apps.hello;
+          #apps.hello = flake-utils.lib.mkApp { drv = packages.default; };
+          #apps.${system}.default = apps.hello;
 
           devShells.default = import ./shell.nix { inherit pkgs; };
         }
