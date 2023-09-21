@@ -1,7 +1,7 @@
-{ pkgs ? import <nixpkgs> {} }:
-
+{pkgs ? import <nixpkgs> {}}:
 pkgs.mkShell {
-  # nativeBuildInputs is usually what you want -- tools you need to run
-  nativeBuildInputs = with pkgs.buildPackages; [ ripgrep act ];
+  #inherit (checks.${system}.pre-commit-check) shellHook;
   DOCKER_BUILDKIT = 1;
+  # nativeBuildInputs -- tools you need to run to facilitate the build
+  nativeBuildInputs = with pkgs.buildPackages; [ripgrep act];
 }

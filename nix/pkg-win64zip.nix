@@ -1,8 +1,10 @@
-{ pkgs, package }:
-
+{
+  pkgs,
+  package,
+}:
 pkgs.packageForWindows package {
   targetSystem = "x86_64-windows";
-  appendExe = [ "hello" ];
+  appendExe = ["hello"];
   deps = {
     libcpp = {
       tail = "libc++-14.0.3-1-any.pkg.tar.zst";
